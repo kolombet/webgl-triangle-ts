@@ -1,134 +1,134 @@
+import { initShader } from './util';
 import Matrix4 from './cuon-matrix';
-
 /**
  * Rotating with Matrix4 + varying coloring
  */
 
 class WebGL {
-  translate: Array<number>;
-  angle: number;
   gl: WebGLRenderingContext;
   shader: WebGLProgram;
-  aPosition: number;
-  uxformMatrix: WebGLUniformLocation;
-  uWidth: WebGLUniformLocation;
-  uHeight: WebGLUniformLocation;
-  xformMatrix: Matrix4;
-  vertexBuffers: number;
+  vertexShaderSource: string;
+  fragmentShaderSource: string;
+
+  numberOfVertixes: number;
   tick: number;
 
-  constructor() {
-    this.translate = [0.5, 0.5, 0];
-    this.angle = 90.0;
+  aPosition: number;
+  uSampler: WebGLUniformLocation;
+  uxformMatrix: WebGLUniformLocation;
+  texture: WebGLTexture;
+
+  xformMatrix: Matrix4;
+  angle: number;
+
+  constructor(gl: WebGLRenderingContext) {
+    this.gl = gl;
     this.init();
   }
 
   init() {
-    if (!document.getElementById('glcanvas')) {
-      throw new Error('glcanvas not found');
-    }
-    const canvas: HTMLCanvasElement = document.getElementById('glcanvas')! as HTMLCanvasElement;
-    const gl = canvas.getContext('webgl')!;
-    this.gl = gl;
+    this.vertexShaderSource = `
+        attribute vec4 a_Position;
+        uniform mat4 u_xformMatrix;
+        
+        attribute vec2 a_TexCoord;
+        varying vec2 v_TexCoord;
 
-    const vertexShaderSource = `
-            attribute vec4 a_Position;
-            attribute vec4 a_Color;
-            uniform mat4 u_xformMatrix;
-            
-            varying vec4 v_Color;
-            void main() {
-                gl_Position = u_xformMatrix * a_Position;
-                v_Color = a_Color;
-            }
-        `;
+        void main() {
+            gl_Position = u_xformMatrix * a_Position;
+            v_TexCoord = a_TexCoord;
+        }
+    `;
 
-    const fragmentShaderSource = `
-            precision mediump float;
-            uniform float u_Width;
-            uniform float u_Height;
-            varying vec4 v_Color;
-            void main() {
-                gl_FragColor = v_Color;
-                // gl_FragColor = vec4(gl_FragCoord.x/u_Width, 0.0, gl_FragCoord.y/u_Height, 1.0);
-            }
-        `;
+    this.fragmentShaderSource = `
+        precision mediump float;
+        uniform sampler2D u_Sampler;
+        varying vec2 v_TexCoord;
+        void main() {
+            gl_FragColor = texture2D(u_Sampler, v_TexCoord);
+        }
+    `;
 
-    // upload and compile the vertex shader
-    const vertexShader = gl.createShader(gl.VERTEX_SHADER);
-    gl.shaderSource(vertexShader, vertexShaderSource);
-    gl.compileShader(vertexShader);
-
-    // upload and compile the fragment shader
-    const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
-    gl.shaderSource(fragmentShader, fragmentShaderSource);
-    gl.compileShader(fragmentShader);
-
-    // link the vertex shader and fragment shader together into a shader program
-    this.shader = gl.createProgram()!;
-    gl.attachShader(this.shader, vertexShader);
-    gl.attachShader(this.shader, fragmentShader);
-    gl.linkProgram(this.shader);
-    gl.useProgram(this.shader);
-    gl.clearColor(0.0, 0.0, 0.0, 1.0);
-
-    this.aPosition = this.gl.getAttribLocation(this.shader, 'a_Position');
-    this.uxformMatrix = this.gl.getUniformLocation(this.shader, 'u_xformMatrix')!;
-    this.uWidth = this.gl.getUniformLocation(this.shader, 'u_Width')!;
-    this.uHeight = this.gl.getUniformLocation(this.shader, 'u_Height')!;
-
-    this.xformMatrix = new Matrix4();
-    this.vertexBuffers = this.initVertexBuffers();
-
+    this.numberOfVertixes = 4;
     this.tick = 0;
+    this.angle = 90.0;
+    this.xformMatrix = new Matrix4();
 
-    this.draw();
+    this.shader = initShader(this.gl, this.vertexShaderSource, this.fragmentShaderSource);
+
+    this.uxformMatrix = this.gl.getUniformLocation(this.shader, 'u_xformMatrix')!;
+    this.uSampler = this.gl.getUniformLocation(this.shader, 'u_Sampler')!;
+    this.gl.uniform1i(this.uSampler, 0);
+
+    this.initVertexBuffers();
+    this.initTextures(this.draw);
   }
 
   draw = () => {
     this.tick++;
-    const s = Math.sin(this.tick / 100);
-    this.xformMatrix.setRotate(this.angle * s, 0, 0, 1);
-    this.xformMatrix.translate(0.35, 0, 0);
 
-    this.gl.vertexAttrib3f(this.aPosition, s, 0.0, 0.0);
+    // const s = Math.sin(this.tick / 100);
+    const s = 1;
+    this.xformMatrix.setRotate(this.angle * s, 0, 0, 1);
+    // this.xformMatrix.translate(0.005 * s, 0, 0);
+
     this.gl.uniformMatrix4fv(this.uxformMatrix, false, this.xformMatrix.elements);
-    this.gl.uniform1f(this.uWidth, this.gl.drawingBufferWidth);
-    this.gl.uniform1f(this.uHeight, this.gl.drawingBufferHeight);
 
     this.gl.clear(this.gl.COLOR_BUFFER_BIT);
-    this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, this.vertexBuffers);
+    this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, this.numberOfVertixes);
+
     window.requestAnimationFrame(this.draw);
   };
 
   initVertexBuffers() {
-    const data = [0.0, 0.5, 1.0, 0.0, 0.0, -0.5, -0.5, 0.0, 1.0, 0.0, 0.5, -0.5, 0.0, 0.0, 1.0];
-    const verticesColors = new Float32Array(data);
-    const n = 3;
+    const data = [-1, 1, 0.0, 1.0, -1, -1, 0.0, 0.0, 1, 1, 1.0, 1.0, 1, -1, 1.0, 0.0];
+    const vertices = new Float32Array(data);
 
-    const vertexColorBuffer = this.gl.createBuffer();
-    if (!vertexColorBuffer) {
+    const FSIZE = vertices.BYTES_PER_ELEMENT;
+
+    const vertexBuffer = this.gl.createBuffer();
+    if (!vertexBuffer) {
       throw new Error('vertexbuffer failed');
     }
 
-    this.gl.bindBuffer(this.gl.ARRAY_BUFFER, vertexColorBuffer);
-    this.gl.bufferData(this.gl.ARRAY_BUFFER, verticesColors, this.gl.STATIC_DRAW);
+    this.gl.bindBuffer(this.gl.ARRAY_BUFFER, vertexBuffer);
+    this.gl.bufferData(this.gl.ARRAY_BUFFER, vertices, this.gl.STATIC_DRAW);
 
-    const FSIZE = verticesColors.BYTES_PER_ELEMENT;
     const aPosition = this.gl.getAttribLocation(this.shader, 'a_Position');
-    const aColor = this.gl.getAttribLocation(this.shader, 'a_Color');
-
-    this.gl.vertexAttribPointer(aPosition, 2, this.gl.FLOAT, false, FSIZE * 5, 0);
+    this.gl.vertexAttribPointer(aPosition, 2, this.gl.FLOAT, false, FSIZE * 4, 0);
     this.gl.enableVertexAttribArray(aPosition);
 
-    this.gl.vertexAttribPointer(aColor, 3, this.gl.FLOAT, false, FSIZE * 5, FSIZE * 2);
-    this.gl.enableVertexAttribArray(aColor);
-    return n;
+    const aTexCoord = this.gl.getAttribLocation(this.shader, 'a_TexCoord');
+    this.gl.vertexAttribPointer(aTexCoord, 2, this.gl.FLOAT, false, FSIZE * 4, FSIZE * 2);
+    this.gl.enableVertexAttribArray(aTexCoord);
+  }
+
+  initTextures(callback: Function) {
+    var image = new Image();
+    image.onload = () => this.loadTexture(image, callback);
+    image.src = 'blueflower.jpg';
+  }
+
+  loadTexture(image: HTMLImageElement, callback: Function) {
+    this.texture = this.gl.createTexture()!;
+
+    if (!this.texture) {
+      throw new Error('Failed to create the texture object');
+    }
+
+    this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, 1);
+    this.gl.activeTexture(this.gl.TEXTURE0);
+    this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture);
+
+    this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);
+    this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGB, this.gl.RGB, this.gl.UNSIGNED_BYTE, image);
+
+    callback();
   }
 }
 
-const init = (): WebGL => {
-  return new WebGL();
+const init = (gl: WebGLRenderingContext): WebGL => {
+  return new WebGL(gl);
 };
 
 export default init;
